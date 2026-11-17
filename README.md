@@ -61,8 +61,8 @@ Este programa usa un `main.exe` de Whisper + un modelo `.bin` (formato ggml). Ha
 
 #### Opción A: AMD (la probada por el autor)
 
-> **Probado con una AMD Radeon RX 7800 XT de 16 GB.** El autor tiene AMD, así que este es el camino que usa y que
-> sabe que funciona: **Whisper Const-me** (el que instala Subtitle Edit) con un modelo ggml.
+> **Probado con una AMD Radeon RX 7800 XT de 16 GB.**, así que este camino
+> funciona: **Whisper Const-me** (el que instala Subtitle Edit) con un modelo ggml.
 > Const-me usa Direct3D 11, por lo que no depende de CUDA y va bien en tarjetas AMD.
 
 1. Instala [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit/releases).
