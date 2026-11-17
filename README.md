@@ -41,7 +41,7 @@ programa convierte la voz a esa línea de tiempo antes de alinear (opción «Tie
 **Whisper** (el de Subtitle Edit) y un traductor (**Ollama** local o una IA externa por copiar/pegar).
 
 > Whisper Const-me necesita Windows de 64 bits, una GPU compatible con Direct3D 11 y una CPU con AVX y F16C
-> (prácticamente cualquier PC desde 2012).
+> (prácticamente cualquier PC desde 2012). Funciona con GPUs AMD, NVIDIA e Intel.
 
 ## Instalación completa, paso a paso (con todos los extras)
 
@@ -57,7 +57,13 @@ Con esto ya puedes sincronizar. Los pasos siguientes son solo para la detección
 
 ### 2. Whisper, para transcribir los tramos sin subtítulo (opcional)
 
-Este programa usa el **Whisper Const-me** (`main.exe` + un modelo `.bin`) que instala Subtitle Edit. Es lo más cómodo:
+Este programa usa un `main.exe` de Whisper + un modelo `.bin` (formato ggml). Hay dos caminos según tu tarjeta gráfica.
+
+#### Opción A: AMD (la probada por el autor)
+
+> **Probado con una AMD Radeon RX 7800 XT de 16 GB.** El autor tiene AMD, así que este es el camino que usa y que
+> sabe que funciona: **Whisper Const-me** (el que instala Subtitle Edit) con un modelo ggml.
+> Const-me usa Direct3D 11, por lo que no depende de CUDA y va bien en tarjetas AMD.
 
 1. Instala [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit/releases).
 2. Dentro de Subtitle Edit: **Video → Speech to text (Whisper)…**, elige el motor **Const-me** y un modelo.
@@ -66,9 +72,23 @@ Este programa usa el **Whisper Const-me** (`main.exe` + un modelo `.bin`) que in
    (`main.exe` y `Models\*.bin`; usa el modelo `.bin` más grande que haya).
 
 Si ya tienes `main.exe` y un modelo en otra carpeta, indícalos en el botón **Ajustes…** (incluye una prueba).
+El motor original está en [Const-me/Whisper](https://github.com/Const-me/Whisper) (licencia MPL-2.0).
 
-**Modelos de Whisper (formato ggml).** Se descargan de Hugging Face, del repositorio
-[`ggerganov/whisper.cpp`](https://huggingface.co/ggerganov/whisper.cpp):
+#### Opción B: NVIDIA
+
+- **Lo más sencillo: usa también la Opción A.** Const-me funciona igual en tarjetas NVIDIA (Direct3D 11), así que
+  puedes seguir exactamente los mismos pasos. Es la combinación con la que se ha desarrollado el programa, aunque
+  el autor solo la ha probado con AMD.
+- **Alternativa (sin probar): [whisper.cpp](https://github.com/ggml-org/whisper.cpp) con CUDA.** Es más rápido en
+  muchas tarjetas NVIDIA. Este programa llama al ejecutable con las opciones `-m`, `-l`, `-osrt` y `--prompt`, que
+  también existen en la línea de comandos de whisper.cpp, así que en principio debería servir. Ten en cuenta que
+  en versiones recientes el ejecutable se llama `whisper-cli.exe` y no `main.exe`; indícalo en **Ajustes…**.
+  Usa el botón de prueba de **Ajustes…** para comprobar que funciona antes de lanzar un episodio.
+  Si lo pruebas, cuéntame el resultado abriendo un *issue*.
+
+#### Modelos de Whisper (formato ggml)
+
+Se descargan de Hugging Face, del repositorio [`ggerganov/whisper.cpp`](https://huggingface.co/ggerganov/whisper.cpp):
 
 | Modelo | Tamaño aprox. | Descarga directa |
 |---|---|---|
@@ -77,11 +97,9 @@ Si ya tienes `main.exe` y un modelo en otra carpeta, indícalos en el botón **A
 | `ggml-large-v3.bin` (el más preciso) | ~3,1 GB | [enlace](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin) |
 
 Guarda el `.bin` en la carpeta `Models` de arriba o elígelo en **Ajustes…**. En la página de Hugging Face figura el
-SHA de cada archivo, por si quieres comprobar la descarga. Los modelos cuantizados (`q5_0`, `q8_0`) no los he
-probado con Const-me; usa los de la tabla.
-El motor de Whisper en sí también lo puedes ver en el proyecto original,
-[Const-me/Whisper](https://github.com/Const-me/Whisper) (licencia MPL-2.0). Otros motores de Whisper (whisper.cpp,
-faster-whisper…) no están probados con este programa.
+SHA de cada archivo, por si quieres comprobar la descarga. Los modelos cuantizados (`q5_0`, `q8_0`) no están probados
+con este programa; usa los de la tabla. Con una GPU de 16 GB como la del autor cabe cualquiera de ellos; con menos
+memoria de vídeo, empieza por `medium`.
 
 ### 3. Traducción de las frases detectadas (opcional)
 
