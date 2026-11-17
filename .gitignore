@@ -1,0 +1,16 @@
+# Configuración personal que el programa genera solo (rutas, ventana, modelos)
+subsync_config.json
+subsync_error.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Windows
+*.lnk
+Thumbs.db
+desktop.ini
+
+# Resultados de ejemplo
+sincronizados/
+*_frases_detectadas.txt
