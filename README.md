@@ -35,14 +35,69 @@ programa convierte la voz a esa línea de tiempo antes de alinear (opción «Tie
 
 ## Requisitos
 
-- Windows con **Python 3.8 o superior** (con `tkinter`).
-- [`numpy`](https://numpy.org/) (`pip install numpy`; el lanzador lo instala si falta).
-- **ffmpeg** y **ffprobe**. No tienen que estar en el PATH: el programa los busca solo (PATH de Windows,
-  winget, Chocolatey, Scoop, `C:\ffmpeg`…). Si no los encuentra, usa el botón *Buscar ffmpeg…* o `--ffmpeg-dir`.
-- Opcional: `pip install tkinterdnd2` para arrastrar archivos a la ventana.
-- Opcional, para la detección de frases que faltan:
-  - **Whisper** de Subtitle Edit (Const-me: `main.exe` + `Models\large.bin`), detectado automáticamente.
-  - **[Ollama](https://ollama.com/)** con un modelo para traducir (por ejemplo `ollama pull qwen3:8b`).
+**Para sincronizar (lo imprescindible):** Windows, Python 3.8+ (con `tkinter`), `numpy` y `ffmpeg`/`ffprobe`.
+
+**Opcional:** `tkinterdnd2` (arrastrar archivos a la ventana) y, para la detección de frases que faltan,
+**Whisper** (el de Subtitle Edit) y un traductor (**Ollama** local o una IA externa por copiar/pegar).
+
+> Whisper Const-me necesita Windows de 64 bits, una GPU compatible con Direct3D 11 y una CPU con AVX y F16C
+> (prácticamente cualquier PC desde 2012).
+
+## Instalación completa, paso a paso (con todos los extras)
+
+### 1. Lo básico (obligatorio)
+
+1. **Python 3.8 o superior**: [python.org/downloads](https://www.python.org/downloads/). Marca *Add Python to PATH*.
+2. **Este programa**: botón verde *Code → Download ZIP* (o `git clone https://github.com/iAdrink/SubSyncLocal.git`) y descomprímelo donde quieras.
+3. **Librerías**: `pip install numpy tkinterdnd2`. Solo `numpy` es imprescindible; si falta, el programa ofrece instalarlo solo, y el lanzador `SubSyncLocal.pyw` instala `tkinterdnd2` la primera vez.
+4. **ffmpeg y ffprobe**: en una consola, `winget install --id=Gyan.FFmpeg -e`
+   (o descarga las builds de [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)). No hace falta tocar el PATH: el programa lo busca solo.
+
+Con esto ya puedes sincronizar. Los pasos siguientes son solo para la detección de frases que faltan.
+
+### 2. Whisper, para transcribir los tramos sin subtítulo (opcional)
+
+Este programa usa el **Whisper Const-me** (`main.exe` + un modelo `.bin`) que instala Subtitle Edit. Es lo más cómodo:
+
+1. Instala [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit/releases).
+2. Dentro de Subtitle Edit: **Video → Speech to text (Whisper)…**, elige el motor **Const-me** y un modelo.
+   Subtitle Edit descarga motor y modelo automáticamente la primera vez que lo usas.
+3. Listo: SubSync Local lo encuentra solo en `%APPDATA%\Subtitle Edit\SpeechToText\Const-me\`
+   (`main.exe` y `Models\*.bin`; usa el modelo `.bin` más grande que haya).
+
+Si ya tienes `main.exe` y un modelo en otra carpeta, indícalos en el botón **Ajustes…** (incluye una prueba).
+
+**Modelos de Whisper (formato ggml).** Se descargan de Hugging Face, del repositorio
+[`ggerganov/whisper.cpp`](https://huggingface.co/ggerganov/whisper.cpp):
+
+| Modelo | Tamaño aprox. | Descarga directa |
+|---|---|---|
+| `ggml-medium.bin` (el que recomienda Whisper Const-me) | ~1,5 GB | [enlace](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin) |
+| `ggml-large-v3-turbo.bin` | ~1,6 GB | [enlace](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin) |
+| `ggml-large-v3.bin` (el más preciso) | ~3,1 GB | [enlace](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin) |
+
+Guarda el `.bin` en la carpeta `Models` de arriba o elígelo en **Ajustes…**. En la página de Hugging Face figura el
+SHA de cada archivo, por si quieres comprobar la descarga. Los modelos cuantizados (`q5_0`, `q8_0`) no los he
+probado con Const-me; usa los de la tabla.
+El motor de Whisper en sí también lo puedes ver en el proyecto original,
+[Const-me/Whisper](https://github.com/Const-me/Whisper) (licencia MPL-2.0). Otros motores de Whisper (whisper.cpp,
+faster-whisper…) no están probados con este programa.
+
+### 3. Traducción de las frases detectadas (opcional)
+
+- **Local con [Ollama](https://ollama.com/download)**: instálalo y ejecuta `ollama pull qwen3:8b`
+  (~5 GB, licencia Apache 2.0). Puedes elegir otro modelo en **Ajustes…**, con un botón para actualizar la lista.
+- **Sin Ollama**: el traductor «IA externa» te da un prompt completo para copiar y pegar en la IA que prefieras.
+
+## ¿Por qué no se incluyen aquí los modelos?
+
+- **Tamaño.** GitHub bloquea los archivos de más de 100 MiB en un repositorio normal; con Git LFS el máximo por
+  archivo es de 2 GB en cuentas gratuitas, y los *assets* de una *release* tienen un tope de 2 GiB. `ggml-large-v3.bin`
+  ronda los 3,1 GB, así que no cabe en ninguna de las tres vías.
+- **Licencias.** Los pesos de Whisper de OpenAI y las conversiones a ggml de whisper.cpp son MIT, y Qwen3 es Apache 2.0,
+  de modo que redistribuirlos es posible conservando sus avisos de licencia. Aun así, lo más limpio es descargarlos de
+  la fuente original: siempre están al día, se pueden verificar y este repositorio no tiene que cargar con binarios
+  de terceros. Esto no es asesoramiento legal.
 
 ## Uso
 
