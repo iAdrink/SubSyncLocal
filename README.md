@@ -78,7 +78,7 @@ El motor original está en [Const-me/Whisper](https://github.com/Const-me/Whispe
 
 - **Lo más sencillo: usa también la Opción A.** Const-me funciona igual en tarjetas NVIDIA (Direct3D 11), así que
   puedes seguir exactamente los mismos pasos. Es la combinación con la que se ha desarrollado el programa, aunque
-  el autor solo la ha probado con AMD.
+  solo se ha probado con AMD.
 - **Alternativa (sin probar): [whisper.cpp](https://github.com/ggml-org/whisper.cpp) con CUDA.** Es más rápido en
   muchas tarjetas NVIDIA. Este programa llama al ejecutable con las opciones `-m`, `-l`, `-osrt` y `--prompt`, que
   también existen en la línea de comandos de whisper.cpp, así que en principio debería servir. Ten en cuenta que
