@@ -32,6 +32,12 @@ programa convierte la voz a esa línea de tiempo antes de alinear (opción «Tie
 - Avisos de fiabilidad al terminar cada episodio (poca coincidencia, desfase poco claro, tramos con desfase residual).
 - Arrastrar y soltar dentro de la ventana (opcional, con `tkinterdnd2`).
 - Uso por **línea de comandos** además de la ventana.
+- Botón **Parar**: el mismo botón de «Sincronizar» se vuelve rojo mientras trabaja y corta el proceso (también mata
+  ffmpeg y Whisper). Cerrar la ventana con la cruz tampoco deja procesos huérfanos.
+- La ventana de **frases que faltan** oculta por defecto los sonidos y onomatopeyas que Whisper detecta (`(爆発音)`,
+  `(♪ BGM)`, quejidos y chillidos sin palabras…) y avisa de cuántos hay, con una casilla para verlos por si acaso.
+  Opcionalmente, el modelo local de Ollama confirma si cada línea dudosa es voz real o ruido (Ajustes).
+- El **original detectado** se puede seleccionar y copiar (cuadro de solo lectura, «Copiar original» y «Copiar todos»).
 
 ## Requisitos
 

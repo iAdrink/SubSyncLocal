@@ -162,6 +162,40 @@ def write_ass_new(path, cues):
 def _no_window():
     return dict(creationflags=0x08000000) if os.name == 'nt' else {}
 
+# ---- cancelar: el boton "Parar" activa CANCEL; los procesos externos (ffmpeg, Whisper) se matan y el trabajo se corta
+class Cancelled(BaseException):      # BaseException a proposito: los "except Exception" del programa no la tragan
+    pass
+CANCEL = threading.Event()
+_PROCS = set(); _PROCS_LOCK = threading.Lock()
+
+def check_cancel():
+    if CANCEL.is_set(): raise Cancelled()
+
+def kill_all():
+    with _PROCS_LOCK: ps = list(_PROCS)
+    for pr in ps:
+        try: pr.kill()
+        except Exception: pass
+
+def run_cancellable(cmd, capture_output=True, timeout=None, **kw):
+    # como subprocess.run(..., capture_output=True), pero se puede cortar con CANCEL
+    check_cancel()
+    pr = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+    with _PROCS_LOCK: _PROCS.add(pr)
+    t0 = time.time()
+    try:
+        while True:
+            try:
+                out, err = pr.communicate(timeout=0.25); break
+            except subprocess.TimeoutExpired:
+                if CANCEL.is_set():
+                    pr.kill(); pr.communicate(); raise Cancelled()
+                if timeout is not None and time.time() - t0 > timeout:
+                    pr.kill(); pr.communicate(); raise subprocess.TimeoutExpired(cmd, timeout)
+    finally:
+        with _PROCS_LOCK: _PROCS.discard(pr)
+    return subprocess.CompletedProcess(cmd, pr.returncode, out, err)
+
 _CONFIG_NAMES = ('subsync_config.json',)
 _TOOL_CACHE = {}
 
@@ -260,7 +294,7 @@ def set_ffmpeg_dir(path):
     raise RuntimeError("En esa carpeta no hay %s." % exe)
 
 def probe_audio(path):
-    r = subprocess.run([find_tool('ffprobe'), '-v', 'error', '-print_format', 'json', '-show_streams', '-select_streams', 'a', path],
+    r = run_cancellable([find_tool('ffprobe'), '-v', 'error', '-print_format', 'json', '-show_streams', '-select_streams', 'a', path],
                        capture_output=True, **_no_window())
     if r.returncode != 0: raise RuntimeError("ffprobe no puede leer %s: %s" % (path, r.stderr.decode('utf-8', 'replace')[:300]))
     st = json.loads(r.stdout.decode('utf-8', 'replace')).get('streams', [])
@@ -292,7 +326,7 @@ def extract_db(path, stream, mode='center'):
     af = pan + 'highpass=f=120,lowpass=f=4000'
     cmd = [find_tool('ffmpeg'), '-nostdin', '-v', 'error', '-i', path, '-map', '0:a:%d' % stream['n'], '-af', af,
            '-ac', '1', '-ar', '8000', '-f', 's16le', 'pipe:1']
-    r = subprocess.run(cmd, capture_output=True, **_no_window())
+    r = run_cancellable(cmd, capture_output=True, **_no_window())
     if r.returncode != 0 or len(r.stdout) < 16000:
         raise RuntimeError("ffmpeg no pudo extraer el audio: " + r.stderr.decode('utf-8', 'replace')[:300])
     x = np.frombuffer(r.stdout, dtype='<i2').astype(np.float32)
@@ -313,7 +347,7 @@ def speech_activity(db):
 
 def packet_pts(path, n):
     """tiempos (pts) de los paquetes de la pista de audio n, segun el contenedor"""
-    r = subprocess.run([find_tool('ffprobe'), '-v', 'error', '-select_streams', 'a:%d' % n, '-show_entries', 'packet=pts_time',
+    r = run_cancellable([find_tool('ffprobe'), '-v', 'error', '-select_streams', 'a:%d' % n, '-show_entries', 'packet=pts_time',
                         '-of', 'csv=p=0', path], capture_output=True, **_no_window())
     vals = []
     for l in r.stdout.decode('utf-8', 'replace').split('\n'):
@@ -669,6 +703,8 @@ def collect(paths, recursive=False):
     return medias, subs
 
 def run_jobs(paths, outdir, opts, log, recursive=False):
+    _log0 = log
+    def log(m): check_cancel(); _log0(m)
     medias, subs = collect(paths, recursive)
     if not medias or not subs:
         raise RuntimeError("Necesito al menos un video/audio y un subtitulo (encontrados: %d video/audio, %d subtitulos)." % (len(medias), len(subs)))
@@ -684,7 +720,10 @@ def run_jobs(paths, outdir, opts, log, recursive=False):
         log("\n[%d/%d]" % (i, n))
         od = outdir or os.path.join(os.path.dirname(os.path.abspath(s_)), 'sincronizados')
         o2 = dict(opts); pcb = opts.get('progress_cb')
-        if pcb: o2['prog'] = (lambda fr, txt='', i=i: pcb((i - 1 + min(1.0, max(0.0, fr))) / n, ("[%d/%d] %s" % (i, n, txt)) if n > 1 else txt))
+        if pcb:
+            def _prog(fr, txt='', i=i):
+                check_cancel(); pcb((i - 1 + min(1.0, max(0.0, fr))) / n, ("[%d/%d] %s" % (i, n, txt)) if n > 1 else txt)
+            o2['prog'] = _prog
         try: reports.append((m, sync_one(m, s_, od, o2, log)))
         except Exception as ex: log("  ERROR: %s" % ex)
     return reports
@@ -719,6 +758,8 @@ def apply_dark(root):
     st.map('TButton', background=[('active', accent2), ('pressed', accent), ('disabled', panel)], foreground=[('disabled', muted)])
     st.configure('Accent.TButton', background=accent, foreground='#ffffff', padding=(18, 8), font=('Segoe UI', 10, 'bold'))
     st.map('Accent.TButton', background=[('active', accent2), ('pressed', accent), ('disabled', panel)], foreground=[('disabled', muted)])
+    st.configure('Stop.TButton', background='#9c4a4e', foreground='#ffffff', padding=(18, 8), font=('Segoe UI', 10, 'bold'))
+    st.map('Stop.TButton', background=[('active', '#b0585d'), ('pressed', '#9c4a4e'), ('disabled', panel)], foreground=[('disabled', muted)])
     st.configure('TCheckbutton', background=bg, foreground=fg, indicatorcolor=field, indicatorbackground=field)
     st.map('TCheckbutton', background=[('active', bg)], indicatorcolor=[('selected', accent), ('pressed', accent2)])
     st.configure('TCombobox', fieldbackground=field, background=panel, foreground=fg, arrowcolor=fg, bordercolor=border,
@@ -800,6 +841,7 @@ def run_gui():
             pass
     restore_geometry()
     def on_close():
+        CANCEL.set(); kill_all()          # que no se queden ffmpeg o Whisper huerfanos al cerrar con la cruz
         save_geometry(); root.destroy()
     root.protocol("WM_DELETE_WINDOW", on_close)
     col = apply_dark(root)
@@ -1080,9 +1122,18 @@ def run_gui():
     def worker(opts, paths, out, rec):
         try:
             run_jobs(paths, out, opts, log, rec); log("\nTerminado.")
+        except Cancelled:
+            log("\nCancelado. Lo que ya estaba terminado antes se conserva.")
         except Exception as ex:
             log("ERROR: %s" % ex)
         q.put(None)
+    def set_running(on):
+        if on: btn.configure(text="Parar", style='Stop.TButton', command=stop)
+        else: btn.configure(text="Sincronizar", style='Accent.TButton', command=start)
+        btn.state(['!disabled'])
+    def stop():
+        CANCEL.set(); btn.configure(text="Parando…"); btn.state(['disabled']); v_ptxt.set("Parando…")
+        txt.insert('end', "\nParando el proceso…\n"); txt.see('end')
     def start():
         if not refresh_ffmpeg():
             nb.select(tab_log); txt.insert('end', "No encuentro ffmpeg. Pulsa 'Buscar ffmpeg…' y elige su carpeta.\n"); txt.see('end'); return
@@ -1108,16 +1159,21 @@ def run_gui():
             c_ = load_config(); c_['out_dir'] = v_out.get().strip(); save_config(c_)
         except Exception: pass
         pb.configure(value=0); v_pct.set("0 %"); v_ptxt.set("Empezando…")
-        nb.select(tab_log); btn.state(['disabled'])
+        CANCEL.clear(); set_running(True)
+        nb.select(tab_log)
         threading.Thread(target=worker, args=(opts, paths, v_out.get().strip() or None, v_rec.get()), daemon=True).start()
     def poll():
         try:
             while True:
                 m = q.get_nowait()
                 if m is None:
-                    btn.state(['!disabled'])
-                    if pb['value'] >= 95: pb.configure(value=100); v_pct.set("100 %")
-                    v_ptxt.set("Terminado"); root.title("SubSync Local")
+                    set_running(False)
+                    if CANCEL.is_set():
+                        pb.configure(value=0); v_pct.set("0 %"); v_ptxt.set("Cancelado")
+                    else:
+                        if pb['value'] >= 95: pb.configure(value=100); v_pct.set("100 %")
+                        v_ptxt.set("Terminado")
+                    root.title("SubSync Local")
                 elif isinstance(m, tuple) and m[0] == 'prog':
                     pct = int(round(max(0.0, min(1.0, m[1])) * 100)); pb.configure(value=pct); v_pct.set("%d %%" % pct); v_ptxt.set(m[2]); root.title("SubSync Local - %d %%" % pct)
                 elif isinstance(m, tuple) and m[0] == 'tracks':
