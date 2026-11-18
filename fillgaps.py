@@ -108,6 +108,55 @@ def find_gaps(S, cues, a, min_gap=0.8, pad=0.25, merge=1.2):
         if voiced >= min_gap: out.append(dict(gs=s, ge=e, voiced=voiced))
     return out
 
+def _parse_t(s):
+    s = s.strip(); parts = s.split(':')
+    if not 1 <= len(parts) <= 3 or not all(re.fullmatch(r'\d+', x.strip()) for x in parts):
+        raise ValueError("no entiendo «%s» (escribe minutos y segundos, por ejemplo 12:53)" % s)
+    v = 0
+    for x in parts: v = v * 60 + int(x)
+    return float(v)
+
+def parse_ranges(text, single_span=20.0, max_len=300.0):
+    # "12:53-13:05, 20:10" -> [(773.0, 785.0), (1210.0, 1230.0)]. Un solo minuto = ese momento y los 20 s siguientes.
+    out = []
+    for chunk in re.split(r'[;,\n]+', text or ''):
+        chunk = chunk.strip()
+        if not chunk: continue
+        bits = re.split(r'\s*(?:-|–|—|\s+a\s+|\s+hasta\s+)\s*', chunk, maxsplit=1)
+        t0 = _parse_t(bits[0]); t1 = _parse_t(bits[1]) if len(bits) > 1 and bits[1].strip() else t0 + single_span
+        if t1 <= t0: raise ValueError("el tramo «%s» termina antes de empezar" % chunk)
+        if t1 - t0 > max_len: raise ValueError("el tramo «%s» es demasiado largo (máximo %d min)" % (chunk, int(max_len // 60)))
+        out.append((t0, t1))
+    return out
+
+def forced_gaps(S, cues, a, ranges, pad=0.1, min_len=0.8):
+    # tramos pedidos a mano: dentro de cada uno se queda lo que NO tiene ya linea de subtitulo (no se mira si el detector oye voz o no)
+    n = len(a); cov = np.zeros(n + 1, dtype=bool)
+    for c in cues:
+        i0 = max(0, int(round((c['s'] - pad) / S.FR))); i1 = min(n, int(round((c['e'] + pad) / S.FR)) + 1)
+        if i1 > i0: cov[i0:i1] = True
+    out = []
+    for t0, t1 in ranges:
+        i0 = max(0, int(round(t0 / S.FR))); i1 = min(n, int(round(t1 / S.FR)))
+        unc = ~cov[i0:i1]; m = len(unc); k = 0
+        while k < m:
+            if unc[k]:
+                j = k
+                while j < m and unc[j]: j += 1
+                if (j - k) * S.FR >= min_len: out.append(dict(gs=(i0 + k) * S.FR, ge=(i0 + j) * S.FR, voiced=(j - k) * S.FR, forced=True))
+                k = j
+            else: k += 1
+    return out
+
+def merge_gaps(g1, g2):
+    out = []
+    for g in sorted([dict(x) for x in list(g1) + list(g2)], key=lambda x: x['gs']):
+        if out and g['gs'] <= out[-1]['ge'] + 0.3:
+            o = out[-1]; o['ge'] = max(o['ge'], g['ge']); o['voiced'] = o.get('voiced', 0) + g.get('voiced', 0)
+            o['forced'] = bool(o.get('forced') or g.get('forced'))
+        else: out.append(g)
+    return out
+
 # ----------------------------------------------------------------------------- 2. Whisper solo en esos tramos
 def cut_clip(S, media, stream, mode, t0, dur, out_wav):
     pan = 'pan=mono|c0=c2,' if (mode == 'center' and stream['ch'] >= 3) else ''
@@ -219,7 +268,7 @@ def transcribe_gaps(S, cfg, media, stream, mode, gaps, cues, lang, tmp, log):
         # bucles tipicos de alucinacion: el mismo texto muchas veces
         cnt = {}
         for x in segs: cnt[x[2]] = cnt.get(x[2], 0) + 1
-        segs = [x for x in segs if cnt[x[2]] < 3]
+        segs = [x for x in segs if cnt[x[2]] < (8 if g.get('forced') else 3)]   # en un tramo pedido a mano se toleran mas repeticiones (rezos, cantos)
         if not segs: continue
         if len(segs) == 1 and (segs[0][1] - segs[0][0]) >= 0.6 * (g['ge'] - g['gs']):
             ts = [(g['gs'] - 0.04, g['ge'] + 0.12, segs[0][2])]
@@ -229,7 +278,7 @@ def transcribe_gaps(S, cfg, media, stream, mode, gaps, cues, lang, tmp, log):
                 ts.append((max(s, g['gs'] - 0.1), min(max(e, s + 0.8), g['ge'] + 0.25), t))
             ts[0] = (max(g['gs'] - 0.04, 0.0), ts[0][1], ts[0][2])
         for s, e, t in ts:
-            items.append(dict(s=float(max(0.0, s)), e=float(e), jp=t, wav=w, gs=g['gs'], ge=g['ge'], sound=is_sound(t)))
+            items.append(dict(s=float(max(0.0, s)), e=float(e), jp=t, wav=w, gs=g['gs'], ge=g['ge'], sound=is_sound(t), forced=bool(g.get('forced'))))
     items.sort(key=lambda x: x['s'])
     for n, it in enumerate(items, 1): it['n'] = n
     return items
@@ -430,6 +479,13 @@ def process(S, media, stream, mode, a, cues, rep, opts, log, outdir, stem):
     t0 = time.time(); P = opts.get('prog') or (lambda *x: None)
     P(0.52, 'Buscando voz sin subtítulo')
     gaps = find_gaps(S, cues, a, cfg['min_gap'])
+    ranges = opts.get('fill_ranges') or []
+    if ranges:
+        fg_ = forced_gaps(S, cues, a, ranges)
+        log("  tramos que has pedido revisar a mano: %s" % ", ".join("%s-%s" % (_mmss(x), _mmss(y)) for x, y in ranges))
+        if not fg_: log("     (en esos tramos ya hay subtítulo por todas partes, no hay nada que buscar)")
+        else: log("     parte sin subtítulo que se revisa: %s" % ", ".join("%s-%s" % (_mmss(g['gs']), _mmss(g['ge'])) for g in fg_))
+        gaps = merge_gaps(gaps, fg_)
     if not gaps:
         P(0.95, 'Sin frases que faltar'); log("  frases que faltan: ninguna (no hay voz sin subtítulo). Whisper no hace falta."); rep['fill'] = dict(gaps=0, found=0, added=0); return cues
     log("  %d tramos con voz y sin subtítulo: compruebo solo esos con Whisper" % len(gaps))
@@ -455,7 +511,7 @@ def process(S, media, stream, mode, a, cues, rep, opts, log, outdir, stem):
         mode_tr = cfg['translator']; kind = resolve_kind(cfg, lang)
         log("  tipo de contenido: %s" % KINDS[kind]['name'])
         if cfg.get('classify', True) and mode_tr in ('local', 'both'):
-            cand = [it for it in items if not it.get('sound')]
+            cand = [it for it in items if not it.get('sound') and not it.get('forced')]   # lo de un tramo pedido a mano no se pone en duda
             if cand:
                 t1 = time.time(); ch = 0; ok_cl = True
                 for k, it in enumerate(cand):

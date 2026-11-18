@@ -37,6 +37,9 @@ programa convierte la voz a esa línea de tiempo antes de alinear (opción «Tie
 - La ventana de **frases que faltan** oculta por defecto los sonidos y onomatopeyas que Whisper detecta (`(爆発音)`,
   `(♪ BGM)`, quejidos y chillidos sin palabras…) y avisa de cuántos hay, con una casilla para verlos por si acaso.
   Opcionalmente, el modelo local de Ollama confirma si cada línea dudosa es voz real o ruido (Ajustes).
+- **Revisar tramos a mano**: en «Frases que faltan» puedes escribir minutos concretos (`12:53-13:05`, o solo `12:53` para
+  ese momento y los 20 s siguientes) y Whisper escucha justo ahí, sin depender del detector de voz. Útil con ruido de fondo
+  (música, ambiente), donde la voz no se detecta sola. Solo se revisa lo que no tenga ya subtítulo.
 - El **original detectado** se puede seleccionar y copiar (cuadro de solo lectura, «Copiar original» y «Copiar todos»).
 
 ## Requisitos

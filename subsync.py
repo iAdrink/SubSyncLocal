@@ -990,6 +990,7 @@ def run_gui():
         ffr.grid(row=nxt(), column=0, sticky='ew', pady=(10, 0)); ffr.columnconfigure(0, weight=1)
         make_check(ffr, "Buscar frases que faltan tras sincronizar", v_fill).grid(row=0, column=0, sticky='w', pady=2)
         make_check(ffr, "Añadirlas automáticamente, sin preguntar", v_fauto).grid(row=1, column=0, sticky='w', pady=2)
+        v_franges = tk.StringVar()
         ttk.Label(ffr, text="Traducir con").grid(row=2, column=0, sticky='w', pady=(6, 2))
         cb_tr = ttk.Combobox(ffr, textvariable=v_ftr, state='readonly', values=list(tr_choices()), width=10)
         cb_tr.grid(row=3, column=0, sticky='ew')
@@ -1002,7 +1003,13 @@ def run_gui():
             code = tr_choices().get(v_ftr.get(), 'local')
             FG.settings_dialog(root, sys.modules[__name__], fcfg, col)
             refresh_tr_labels(code)
-        ttk.Button(ffr, text="Ajustes (Whisper, Ollama)…", command=open_settings).grid(row=7, column=0, sticky='w', pady=(6, 0))
+        ttk.Label(ffr, text="Revisar también estos tramos a mano (opcional)").grid(row=7, column=0, sticky='w', pady=(8, 2))
+        ttk.Entry(ffr, textvariable=v_franges).grid(row=8, column=0, sticky='ew')
+        lb_rg = ttk.Label(ffr, text="Ej.: 12:53-13:05, 20:10 (un solo minuto = ese momento y los 20 s siguientes). Whisper escucha justo ahí aunque "
+                          "el detector no oiga voz por el ruido. Solo donde no haya ya subtítulo. Se aplica a todos los episodios de la tanda.",
+                          style='Muted.TLabel', justify='left')
+        lb_rg.grid(row=9, column=0, sticky='w', pady=(2, 0)); wrap_labels.append(lb_rg)
+        ttk.Button(ffr, text="Ajustes (Whisper, Ollama)…", command=open_settings).grid(row=10, column=0, sticky='w', pady=(8, 0))
 
     fr_ff = ttk.Frame(f); fr_ff.grid(row=nxt(), column=0, sticky='ew', pady=(10, 0)); fr_ff.columnconfigure(0, weight=1)
     lb_ff = ttk.Label(fr_ff, text="", style='Muted.TLabel', justify='left'); lb_ff.grid(row=0, column=0, sticky='w')
@@ -1154,6 +1161,11 @@ def run_gui():
             def review_cb(items, ctx):
                 rq = queue.Queue(); q.put(('review', items, ctx, rq)); return rq.get()
             opts['review_cb'] = review_cb
+            try: opts['fill_ranges'] = FG.parse_ranges(v_franges.get())
+            except ValueError as ex:
+                nb.select(tab_log); txt.insert('end', "Tramos a revisar a mano: %s\n" % ex); txt.see('end'); return
+            if opts['fill_ranges'] and not v_fill.get():
+                nb.select(tab_log); txt.insert('end', "Has escrito tramos a revisar, pero «Buscar frases que faltan» está desactivado: actívalo para usarlos.\n"); txt.see('end'); return
         opts['progress_cb'] = lambda fr, t='': q.put(('prog', fr, t))
         try:
             c_ = load_config(); c_['out_dir'] = v_out.get().strip(); save_config(c_)
