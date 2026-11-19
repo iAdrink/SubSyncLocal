@@ -833,10 +833,8 @@ def run_gui():
     def save_geometry():
         try:
             zoomed = (root.state() == 'zoomed')
-            try: log_h = int(paned.winfo_height() - paned.sash_coord(0)[1])
-            except Exception: log_h = None
             if zoomed: root.state('normal'); root.update_idletasks()
-            cfg = load_config(); cfg['window'] = dict(geometry=abs_geometry(), zoomed=zoomed, log_h=log_h); cfg['out_dir'] = v_out.get().strip(); save_config(cfg)
+            cfg = load_config(); cfg['window'] = dict(geometry=abs_geometry(), zoomed=zoomed); cfg['out_dir'] = v_out.get().strip(); save_config(cfg)
         except Exception:
             pass
     restore_geometry()
@@ -867,25 +865,12 @@ def run_gui():
     state = dict(tracks={}, probing=None, w=0, cols=None, media=[], subs=[], guard=False, ptimer=None)
     # contenido en un lienzo con desplazamiento: si la ventana es pequena aparece una barra lateral y nada queda tapado;
     # si es grande, el registro se estira y las opciones se recolocan solas
-    paned = tk.PanedWindow(root, orient='vertical', sashwidth=6, sashpad=2, bg=col['bg'], bd=0, sashrelief='flat', opaqueresize=True, sashcursor='sb_v_double_arrow')
-    paned.pack(fill='both', expand=True)
-    outer = ttk.Frame(paned); paned.add(outer, minsize=40, stretch='always')
-    bottom = ttk.Frame(paned, padding=(12, 0, 12, 10)); paned.add(bottom, minsize=110, stretch='always')
-    # asa de arrastre: franja alta (facil de acertar) con una linea lila fina; el hueco invisible de encima tambien arrastra
-    grip = tk.Frame(bottom, height=14, bg=col['bg'], cursor='sb_v_double_arrow'); grip.pack(fill='x', side='top'); grip.pack_propagate(False)
-    grip_line = tk.Frame(grip, bg=col['accent'], height=2, cursor='sb_v_double_arrow'); grip_line.place(relx=0, rely=0.5, relwidth=1, anchor='w')
-    def grip_drag(_e=None):
-        try:
-            y = paned.winfo_pointery() - paned.winfo_rooty() - 8
-            paned.sash_place(0, 0, int(max(40, min(y, paned.winfo_height() - 120))))
-        except Exception:
-            pass
-    for w_ in (grip, grip_line): w_.bind('<B1-Motion>', grip_drag)
+    outer = ttk.Frame(root); outer.pack(fill='both', expand=True)
     cv_s = tk.Canvas(outer, bg=col['bg'], highlightthickness=0, bd=0)
     vsb = ttk.Scrollbar(outer, orient='vertical', command=cv_s.yview); cv_s.configure(yscrollcommand=vsb.set)
     cv_s.pack(side='left', fill='both', expand=True)
     f = ttk.Frame(cv_s, padding=12); win_id = cv_s.create_window((0, 0), window=f, anchor='nw')
-    sc = dict(on=False, last=None)
+    sc = dict(on=False, last=None); capped = set()
     def fit_canvas(_e=None):
         try:
             cw, ch, rh = cv_s.winfo_width(), cv_s.winfo_height(), f.winfo_reqheight()
@@ -904,8 +889,19 @@ def run_gui():
     def wheel(ev):
         if not sc['on']: return
         wcls = ev.widget.winfo_class() if hasattr(ev.widget, 'winfo_class') else ''
-        if wcls in ('Text', 'Listbox', 'TCombobox', 'Treeview'): return
+        if wcls in ('Listbox', 'Treeview'): return   # (el combobox NO: la rueda sobre él desplaza la ventana, no cambia la opción)
+        if wcls == 'Text' and ev.widget in capped: return
         cv_s.yview_scroll(int(-1 * (ev.delta / 120)), 'units')
+    def combo_wheel(ev):
+        # sustituye el comportamiento de serie del desplegable (cambiar de opcion con la rueda): aqui solo desplaza la ventana
+        try:
+            if ev.widget.winfo_toplevel() is root: wheel(ev)
+        except Exception:
+            pass
+        return 'break'
+    for _seq in ('<MouseWheel>', '<Shift-MouseWheel>', '<Button-4>', '<Button-5>'):
+        try: root.bind_class('TCombobox', _seq, combo_wheel if _seq == '<MouseWheel>' else (lambda e: 'break'))
+        except Exception: pass
     root.bind_all('<MouseWheel>', wheel)
     f.columnconfigure(0, weight=1)
     wrap_labels = []; counter = [0]
@@ -1030,21 +1026,52 @@ def run_gui():
 
     btn = ttk.Button(f, text="Sincronizar", style='Accent.TButton'); btn.grid(row=nxt(), column=0, sticky='ew', pady=(12, 6))
     # el progreso va junto al registro (debajo del borde que se arrastra), para verlo siempre aunque el registro se amplie
+    bottom = ttk.Frame(f); bottom.grid(row=nxt(), column=0, sticky='ew', pady=(0, 6)); bottom.columnconfigure(0, weight=1)
     pfr = ttk.Frame(bottom); pfr.pack(fill='x', pady=(0, 6)); pfr.columnconfigure(0, weight=1)
     pb = ttk.Progressbar(pfr, mode='determinate', maximum=100, value=0); pb.grid(row=0, column=0, sticky='ew')
     v_pct = tk.StringVar(value="0 %"); ttk.Label(pfr, textvariable=v_pct, width=7, anchor='e').grid(row=0, column=1, padx=(8, 0))
-    v_ptxt = tk.StringVar(value="↕ Arrastra la línea lila de arriba para ampliar el registro"); ttk.Label(pfr, textvariable=v_ptxt, style='Muted.TLabel').grid(row=1, column=0, columnspan=2, sticky='w')
+    v_ptxt = tk.StringVar(value="Baja con la rueda del ratón para ver el registro"); ttk.Label(pfr, textvariable=v_ptxt, style='Muted.TLabel').grid(row=1, column=0, columnspan=2, sticky='w')
 
     # ---- pestañas: Emparejado / Registro
-    nb = ttk.Notebook(bottom); nb.pack(fill='both', expand=True)
+    nb = ttk.Notebook(bottom); nb.pack(fill='x')
     def make_text(parent):
         parent.rowconfigure(0, weight=1); parent.columnconfigure(0, weight=1)
-        t = tk.Text(parent, height=5, width=10, wrap='word', bg=col['panel'], fg=col['fg'], insertbackground=col['fg'], relief='flat',
+        t = tk.Text(parent, height=8, width=10, wrap='word', bg=col['panel'], fg=col['fg'], insertbackground=col['fg'], relief='flat',
                     highlightthickness=1, highlightbackground='#3f4147', highlightcolor=col['accent'], font=('Consolas', 10),
                     selectbackground=col['accent'], padx=8, pady=6)
         t.grid(row=0, column=0, sticky='nsew')
-        sbar = ttk.Scrollbar(parent, orient='vertical', command=t.yview); sbar.grid(row=0, column=1, sticky='ns'); t.configure(yscrollcommand=sbar.set)
         return t
+    import tkinter.font as tkfont
+    MIN_LINES, MAX_LINES = 8, 1500
+    def autosize(t):
+        """el hueco del texto se ajusta a lo que hay escrito (la rueda mueve toda la ventana); solo con un registro enorme se queda en un tope y se desplaza por dentro"""
+        try:
+            if t.winfo_ismapped() and t.winfo_width() > 60:
+                r = t.count('1.0', 'end', 'displaylines'); n = int(r[0]) if r else 1
+            else:   # pestana oculta: estimo con el ancho del bloque de pestanas
+                cw = max(1, tkfont.Font(font=t.cget('font')).measure('0'))
+                cols = max(20, (nb.winfo_width() - 40) // cw - 2)
+                n = sum(max(1, -(-len(l) // cols)) for l in t.get('1.0', 'end-1c').split('\n'))
+            h = max(MIN_LINES, min(MAX_LINES, n + 1))
+            if h >= MAX_LINES: capped.add(t)
+            else: capped.discard(t)
+            if int(t.cget('height')) != h: t.configure(height=h)
+        except Exception:
+            pass
+    lg = dict(pending=False, follow=False)
+    def _grow():
+        lg['pending'] = False
+        autosize(txt); autosize(ptxt)
+        if lg['follow']:
+            try:
+                root.update_idletasks(); fit_canvas(); cv_s.yview_moveto(1)
+            except Exception:
+                pass
+    def grow_log():
+        """llamar tras escribir en el registro: lo agranda y, si ya estabas abajo del todo, sigue las lineas nuevas"""
+        if lg['pending']: return
+        lg['follow'] = (not sc['on']) or cv_s.yview()[1] >= 0.99
+        lg['pending'] = True; root.after_idle(_grow)
     tab_pairs = ttk.Frame(nb); tab_log = ttk.Frame(nb)
     nb.add(tab_pairs, text="Emparejado"); nb.add(tab_log, text="Registro")
     ptxt = make_text(tab_pairs); txt = make_text(tab_log)
@@ -1071,7 +1098,7 @@ def run_gui():
                 for m, why in plan['ignored']: ptxt.insert('end', "· ignorado: %s (%s)\n" % (os.path.basename(m), why), 'dim')
             except Exception as ex:
                 ptxt.insert('end', "No he podido leer las rutas: %s\n" % ex, 'bad')
-        ptxt.configure(state='disabled')
+        ptxt.configure(state='disabled'); autosize(ptxt)
     def schedule_pairs(*_):
         if state['ptimer']:
             try: root.after_cancel(state['ptimer'])
@@ -1091,6 +1118,10 @@ def run_gui():
             state['cols'] = cols
             for i, wd in enumerate(opt_widgets): wd.grid(row=i // cols, column=i % cols, sticky='w', padx=(0, 14), pady=2)
     f.bind('<Configure>', on_resize)
+    def relayout(_e=None):
+        if lg['pending']: return
+        lg['follow'] = False; lg['pending'] = True; root.after_idle(_grow)
+    nb.bind('<Configure>', relayout, add='+')
 
     # ---- pistas de audio (del primer video)
     def first_media():
@@ -1140,13 +1171,13 @@ def run_gui():
         btn.state(['!disabled'])
     def stop():
         CANCEL.set(); btn.configure(text="Parando…"); btn.state(['disabled']); v_ptxt.set("Parando…")
-        txt.insert('end', "\nParando el proceso…\n"); txt.see('end')
+        txt.insert('end', "\nParando el proceso…\n"); grow_log()
     def start():
         if not refresh_ffmpeg():
-            nb.select(tab_log); txt.insert('end', "No encuentro ffmpeg. Pulsa 'Buscar ffmpeg…' y elige su carpeta.\n"); txt.see('end'); return
+            nb.select(tab_log); txt.insert('end', "No encuentro ffmpeg. Pulsa 'Buscar ffmpeg…' y elige su carpeta.\n"); grow_log(); return
         paths = state['media'] + state['subs']
         if not paths:
-            nb.select(tab_log); txt.insert('end', "Elige primero los vídeos/audios y los subtítulos.\n"); txt.see('end'); return
+            nb.select(tab_log); txt.insert('end', "Elige primero los vídeos/audios y los subtítulos.\n"); grow_log(); return
         opts = dict(lang=v_lang.get().strip() or None, track=state['tracks'].get(v_track.get()), snap=v_snap.get(),
                     cuts=v_cuts.get(), mix=v_mix.get(), timeline='container' if v_tl.get() else 'audio',
                     fmt=FMT_CHOICES.get(v_fmt.get(), 'auto'))
@@ -1163,9 +1194,9 @@ def run_gui():
             opts['review_cb'] = review_cb
             try: opts['fill_ranges'] = FG.parse_ranges(v_franges.get())
             except ValueError as ex:
-                nb.select(tab_log); txt.insert('end', "Tramos a revisar a mano: %s\n" % ex); txt.see('end'); return
+                nb.select(tab_log); txt.insert('end', "Tramos a revisar a mano: %s\n" % ex); grow_log(); return
             if opts['fill_ranges'] and not v_fill.get():
-                nb.select(tab_log); txt.insert('end', "Has escrito tramos a revisar, pero «Buscar frases que faltan» está desactivado: actívalo para usarlos.\n"); txt.see('end'); return
+                nb.select(tab_log); txt.insert('end', "Has escrito tramos a revisar, pero «Buscar frases que faltan» está desactivado: actívalo para usarlos.\n"); grow_log(); return
         opts['progress_cb'] = lambda fr, t='': q.put(('prog', fr, t))
         try:
             c_ = load_config(); c_['out_dir'] = v_out.get().strip(); save_config(c_)
@@ -1197,28 +1228,20 @@ def run_gui():
                         v_track.set(track_label(choose_stream(streams, v_lang.get().strip() or None)))
                     else:
                         v_track.set(AUTO_LABEL)
-                    txt.insert('end', "Pistas de audio en %s: %d\n" % (os.path.basename(path), len(streams))); txt.see('end')
+                    txt.insert('end', "Pistas de audio en %s: %d\n" % (os.path.basename(path), len(streams))); grow_log()
                 elif isinstance(m, tuple) and m[0] == 'review':
                     _, items, ctx, rq = m
                     try: rq.put(FG.review_dialog(root, items, ctx, col))
                     except Exception as ex:
                         txt.insert('end', "Error en la ventana de revisión: %s\n" % ex); rq.put([])
                 elif isinstance(m, tuple) and m[0] == 'tracks_err':
-                    txt.insert('end', "No he podido leer las pistas de audio: %s\n" % m[1]); txt.see('end')
+                    txt.insert('end', "No he podido leer las pistas de audio: %s\n" % m[1]); grow_log()
                 else:
-                    txt.insert('end', m + '\n'); txt.see('end')
+                    txt.insert('end', m + '\n'); grow_log()
         except queue.Empty:
             pass
         root.after(150, poll)
     btn.configure(command=start)
-    def place_sash():
-        try:
-            h = paned.winfo_height()
-            lh = int((load_config().get('window') or {}).get('log_h') or 330)
-            lh = max(130, min(lh, h - 50)); paned.sash_place(0, 0, h - lh)
-        except Exception:
-            pass
-    root.after(300, place_sash)
     refresh_ffmpeg(); on_resize(); show_pairs(); poll(); root.mainloop()
 
 # ----------------------------------------------------------------------------- CLI
